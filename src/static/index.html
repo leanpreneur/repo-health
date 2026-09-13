@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repo Health</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #14161A;
+      --text:         #E7E4DD;
+      --text-dim:     #8E8B83;
+      --accent:       #4C8577;
+      --border:       #272A32;
+      --surface:      #1B1E25;
+      --font-ui:      -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono:    'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+      /* severity borders */
+      --sev-high:     #4C8577;   /* accent */
+      --sev-medium:   #6B6355;
+      --sev-low:      #2E3038;
+      /* error borders */
+      --err-client:   #7A6535;
+      --err-server:   #7A3535;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 16px;
+      line-height: 1.6;
+      min-height: 100dvh;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 5rem;
+    }
+
+    /* ── header ─────────────────────────────────────── */
+
+    .site-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin-bottom: 0.2rem;
+    }
+
+    .tagline {
+      color: var(--text-dim);
+      font-size: 0.875rem;
+      margin-bottom: 2.25rem;
+    }
+
+    /* ── form ───────────────────────────────────────── */
+
+    .form-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.65rem;
+    }
+
+    .url-input {
+      flex: 1;
+      min-width: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      padding: 0.6rem 0.75rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .url-input:focus { border-color: var(--accent); }
+
+    .url-input::placeholder {
+      color: var(--text-dim);
+      opacity: 0.6;
+    }
+
+    .submit-btn {
+      flex-shrink: 0;
+      background: var(--accent);
+      border: none;
+      border-radius: 4px;
+      color: #0D1410;
+      cursor: pointer;
+      font-family: var(--font-ui);
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.6rem 1rem;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+
+    .submit-btn:hover:not(:disabled) { opacity: 0.85; }
+    .submit-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+
+    /* ── examples + hint ────────────────────────────── */
+
+    .examples {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      margin-bottom: 0.4rem;
+    }
+
+    .example-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      padding: 0;
+      text-underline-offset: 2px;
+    }
+
+    .example-btn:hover { text-decoration: underline; }
+
+    .sep { color: var(--border); margin: 0 0.25rem; }
+
+    .cold-start {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      opacity: 0.65;
+      margin-bottom: 2rem;
+    }
+
+    /* ── loading ────────────────────────────────────── */
+
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 1.5rem 0;
+      color: var(--text-dim);
+      font-size: 0.875rem;
+    }
+
+    .spinner {
+      flex-shrink: 0;
+      width: 15px;
+      height: 15px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── error ──────────────────────────────────────── */
+
+    .error-box {
+      padding: 0.9rem 1rem 0.9rem 1.1rem;
+      border-left: 3px solid var(--err-client);
+      background: rgba(122, 101, 53, 0.08);
+      border-radius: 0 4px 4px 0;
+      margin-top: 0.5rem;
+    }
+
+    .error-box.server { border-left-color: var(--err-server); background: rgba(122, 53, 53, 0.08); }
+
+    .error-kind { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.25rem; }
+    .error-msg  { font-size: 0.875rem; line-height: 1.5; }
+
+    /* ── results ────────────────────────────────────── */
+
+    .results-header {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+    }
+
+    .repo-label {
+      font-family: var(--font-mono);
+      color: var(--text);
+      font-size: 0.82rem;
+    }
+
+    .findings { list-style: none; }
+
+    /* ── finding ────────────────────────────────────── */
+
+    .finding {
+      padding: 1.25rem 0 1.25rem 1.1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .finding:last-child { border-bottom: none; }
+
+    .finding.high   { border-left: 4px solid var(--sev-high); }
+    .finding.medium { border-left: 3px solid var(--sev-medium); }
+    .finding.low    { border-left: 2px solid var(--sev-low); }
+
+    .finding-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .sev-pip {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .sev-pip.high   { background: var(--sev-high); }
+    .sev-pip.medium { background: var(--sev-medium); }
+    .sev-pip.low    { background: #404350; }
+
+    .finding-category {
+      font-size: 0.73rem;
+      color: var(--text-dim);
+      letter-spacing: 0.01em;
+    }
+
+    .finding-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      line-height: 1.45;
+      margin-bottom: 0.85rem;
+    }
+
+    .evidence { list-style: none; margin-bottom: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem; }
+
+    .evidence-item { font-size: 0.82rem; }
+
+    .evidence-link {
+      font-family: var(--font-mono);
+      font-size: 0.76rem;
+      color: var(--accent);
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    .evidence-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+    .evidence-reason {
+      display: block;
+      color: var(--text-dim);
+      margin-top: 0.1rem;
+      line-height: 1.45;
+    }
+
+    .rec-label {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-bottom: 0.2rem;
+    }
+
+    .rec-text {
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    /* ── mobile ─────────────────────────────────────── */
+
+    @media (max-width: 420px) {
+      .form-row    { flex-direction: column; }
+      .submit-btn  { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <h1 class="site-title">Repo Health</h1>
+  <p class="tagline">Five specific findings for any public GitHub repository.</p>
+
+  <form id="form">
+    <div class="form-row">
+      <input
+        id="url-input"
+        class="url-input"
+        type="url"
+        placeholder="https://github.com/owner/repo"
+        autocomplete="off"
+        spellcheck="false"
+        required
+      >
+      <button id="submit-btn" class="submit-btn" type="submit">Analyze repository</button>
+    </div>
+  </form>
+
+  <p class="examples">
+    Try:
+    <button class="example-btn" data-url="https://github.com/pallets/flask">pallets/flask</button>
+    <span class="sep">·</span>
+    <button class="example-btn" data-url="https://github.com/psf/requests">psf/requests</button>
+    <span class="sep">·</span>
+    <button class="example-btn" data-url="https://github.com/tiangolo/fastapi">tiangolo/fastapi</button>
+  </p>
+
+  <p class="cold-start">First request may take up to a minute — the server sleeps when idle.</p>
+
+  <div id="status-area"></div>
+  <div id="results-area"></div>
+
+</div>
+<script>
+  const form       = document.getElementById('form');
+  const urlInput   = document.getElementById('url-input');
+  const submitBtn  = document.getElementById('submit-btn');
+  const statusArea = document.getElementById('status-area');
+  const resultsArea = document.getElementById('results-area');
+
+  const CATEGORY = {
+    hotspot:        'change hotspot',
+    bus_factor:     'bus factor',
+    review_latency: 'review latency',
+    recurring_issue:'recurring issue',
+    test_gap:       'test gap',
+  };
+
+  // Fill input from example buttons
+  document.querySelectorAll('.example-btn').forEach(btn =>
+    btn.addEventListener('click', () => { urlInput.value = btn.dataset.url; urlInput.focus(); })
+  );
+
+  // Escape HTML to safely inject user-supplied strings
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Strip scheme for display; keep href intact
+  function displayUrl(url) {
+    return String(url).replace(/^https?:\/\//, '').replace(/\/$/, '');
+  }
+
+  let phaseTimer = null;
+
+  function showLoading() {
+    clearTimeout(phaseTimer);
+    submitBtn.disabled = true;
+    resultsArea.innerHTML = '';
+    statusArea.innerHTML = `
+      <div class="loading">
+        <div class="spinner"></div>
+        <span id="phase-msg">Collecting repo data…</span>
+      </div>`;
+    phaseTimer = setTimeout(() => {
+      const el = document.getElementById('phase-msg');
+      if (el) el.textContent = 'Running analysis…';
+    }, 10000);
+  }
+
+  function clearLoading() {
+    clearTimeout(phaseTimer);
+    phaseTimer = null;
+    statusArea.innerHTML = '';
+    submitBtn.disabled = false;
+  }
+
+  function showError(message, isServer) {
+    clearLoading();
+    const kind = isServer ? 'Server error' : 'Bad request';
+    const cls  = isServer ? 'error-box server' : 'error-box';
+    resultsArea.innerHTML = `
+      <div class="${cls}">
+        <div class="error-kind">${kind}</div>
+        <div class="error-msg">${esc(message)}</div>
+      </div>`;
+  }
+
+  function extractDetail(body) {
+    if (typeof body?.detail === 'string') return body.detail;
+    if (Array.isArray(body?.detail))
+      return body.detail.map(e => e.msg || String(e)).join('; ');
+    return null;
+  }
+
+  function renderReport(report) {
+    clearLoading();
+
+    const findingsHtml = report.findings.map(f => {
+      const sev      = f.severity;
+      const category = CATEGORY[f.category] || f.category;
+
+      const evidenceHtml = f.evidence.map(e => `
+        <li class="evidence-item">
+          <a class="evidence-link"
+             href="${esc(String(e.url))}"
+             target="_blank"
+             rel="noopener noreferrer"
+          >${esc(displayUrl(e.url))}</a>
+          <span class="evidence-reason">${esc(e.reason)}</span>
+        </li>`).join('');
+
+      return `
+        <li class="finding ${sev}">
+          <div class="finding-meta">
+            <span class="sev-pip ${sev}"></span>
+            <span class="finding-category">${esc(category)}</span>
+          </div>
+          <div class="finding-title">${esc(f.title)}</div>
+          <ul class="evidence">${evidenceHtml}</ul>
+          <div class="rec-label">recommendation</div>
+          <div class="rec-text">${esc(f.recommendation)}</div>
+        </li>`;
+    }).join('');
+
+    resultsArea.innerHTML = `
+      <div class="results-header">
+        Findings for <span class="repo-label">${esc(report.repo)}</span>
+      </div>
+      <ul class="findings">${findingsHtml}</ul>`;
+  }
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const repoUrl = urlInput.value.trim();
+    if (!repoUrl) return;
+
+    showLoading();
+
+    let response, body;
+
+    try {
+      response = await fetch('/analyze', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ repo_url: repoUrl }),
+      });
+    } catch {
+      showError('Could not reach the server. Check your connection and try again.', true);
+      return;
+    }
+
+    try {
+      body = await response.json();
+    } catch {
+      showError('The server returned an unreadable response.', true);
+      return;
+    }
+
+    if (!response.ok) {
+      const isServer = response.status >= 500;
+      const detail = extractDetail(body)
+        || (isServer ? 'An unexpected server error occurred.' : 'The request was not accepted.');
+      showError(detail, isServer);
+      return;
+    }
+
+    renderReport(body);
+  });
+</script>
+</body>
+</html>
