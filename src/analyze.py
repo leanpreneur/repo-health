@@ -13,6 +13,7 @@ import time
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import ValidationError
 
@@ -74,19 +75,35 @@ def build_prompt(data: dict) -> str:
     return "\n\n".join([role, data_block, examples, closing])
 
 
+_BACKOFF = [3, 6, 12, 24]  # seconds between successive 503 retries
+
+
 def _call_model(client: genai.Client, prompt: str) -> tuple[Report | None, str]:
-    """Send one generate_content request; return (parsed Report or None, raw response text)."""
+    """Send one generate_content request; return (parsed Report or None, raw response text).
+
+    Retries up to 4 times on transient ServerError (503) with exponential backoff before
+    giving up. Schema validation failures are handled by the caller, not here.
+    """
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=Report,
         temperature=0,
     )
     t0 = time.perf_counter()
-    response = client.models.generate_content(
-        model=_MODEL,
-        contents=prompt,
-        config=config,
-    )
+    for attempt, backoff in enumerate([0] + _BACKOFF):
+        if backoff:
+            print(f"Gemini server busy, retrying in {backoff}s...", file=sys.stderr)
+            time.sleep(backoff)
+        try:
+            response = client.models.generate_content(
+                model=_MODEL,
+                contents=prompt,
+                config=config,
+            )
+            break
+        except genai_errors.ServerError:
+            if attempt == len(_BACKOFF):
+                raise
     elapsed = time.perf_counter() - t0
 
     meta = response.usage_metadata
