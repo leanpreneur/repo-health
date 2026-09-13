@@ -7,15 +7,21 @@ validated JSON output. Retries once on validation failure before raising.
 """
 
 import json
+import logging
 import os
 import sys
 import time
 
 from dotenv import load_dotenv
+from fastapi import HTTPException
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
+
+_TOKEN_LIMIT = 500_000
 
 from .collect import collect_repo_data
 from .schema import Report
@@ -126,6 +132,12 @@ def analyze_repo(owner: str, repo: str) -> Report:
     """Collect GitHub data, call Gemini, and return a validated Report with exactly 5 findings."""
     data = collect_repo_data(owner, repo)
     prompt = build_prompt(data)
+
+    estimated_tokens = len(prompt) // 4
+    if estimated_tokens > _TOKEN_LIMIT:
+        logger.warning("Prompt too large: estimated %d tokens for %s/%s", estimated_tokens, owner, repo)
+        raise HTTPException(413, "Repository data too large for a single analysis pass")
+
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
     report, raw = _call_model(client, prompt)
