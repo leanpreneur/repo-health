@@ -12,9 +12,12 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from .analyze import analyze_repo
 from .schema import Report
@@ -23,10 +26,30 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
 _GITHUB_URL_RE = re.compile(
     r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/?$"
 )
 _ANALYSIS_TIMEOUT = 120  # seconds
+_ANALYZE_RATE_LIMIT = "10/hour"
+
+
+@app.exception_handler(RateLimitExceeded)
+def rate_limit_exceeded_handler(
+    request: Request, exc: RateLimitExceeded
+) -> JSONResponse:
+    """Return a clear 429 when a client exceeds the /analyze rate limit."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": (
+                f"Rate limit exceeded ({_ANALYZE_RATE_LIMIT} per IP). "
+                "Please wait before submitting another analysis request."
+            )
+        },
+    )
 
 
 class AnalyzeRequest(BaseModel):
@@ -48,13 +71,15 @@ def index() -> FileResponse:
 
 
 @app.post("/analyze")
-def analyze(request: AnalyzeRequest) -> Report:
+@limiter.limit(_ANALYZE_RATE_LIMIT)
+def analyze(request: Request, body: AnalyzeRequest) -> Report:
     """Validate a GitHub repo URL, run analysis in a thread, and return the Report.
 
-    Returns 400 for a malformed URL, 413 if the repo data is too large, 504 on
-    timeout, and 502 for any other internal failure.
+    Returns 400 for a malformed URL, 413 if the repo data is too large, 429 if
+    the caller has exceeded the per-IP rate limit, 504 on timeout, and 502 for
+    any other internal failure.
     """
-    match = _GITHUB_URL_RE.match(request.repo_url.strip())
+    match = _GITHUB_URL_RE.match(body.repo_url.strip())
     if not match:
         raise HTTPException(
             status_code=400,
