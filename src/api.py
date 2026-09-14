@@ -79,6 +79,11 @@ def analyze(request: Request, body: AnalyzeRequest) -> Report:
     the caller has exceeded the per-IP rate limit, 504 on timeout, and 502 for
     any other internal failure.
     """
+    # TEMPORARY: verify Render's proxy headers resolve to the real visitor IP.
+    print(
+        f"resolved client ip: {request.client.host}, "
+        f"x-forwarded-for: {request.headers.get('x-forwarded-for')}"
+    )
     match = _GITHUB_URL_RE.match(body.repo_url.strip())
     if not match:
         raise HTTPException(
